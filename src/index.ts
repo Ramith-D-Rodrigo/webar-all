@@ -11,12 +11,19 @@ let hitTestResult: XRHitTestResult;
 let anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[] = [];
 
 let renderer: THREE.WebGLRenderer;
+let scene: THREE.Scene;
 
 let depthMaterial: THREE.ShaderMaterial;
 
 let directionalLight: THREE.DirectionalLight;
 let lightProbe: THREE.LightProbe;
 let xrLightProbe: any;
+
+interface PlaneData {
+    mesh: THREE.Mesh;
+    timestamp: number;
+}
+const planes = new Map<XRPlane, PlaneData>();
 
 main();
 
@@ -34,7 +41,7 @@ async function main(){
     document.body.appendChild(renderer.domElement);
 
     const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight);
-    const scene = new THREE.Scene();
+    scene = new THREE.Scene();
     directionalLight = new THREE.DirectionalLight();
     directionalLight.intensity = 0;
     directionalLight.castShadow = true;
@@ -109,7 +116,7 @@ async function main(){
             const pose = hitTestResult.getPose(unboundedRefSpace);
             const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
             const obj = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const objMesh = new THREE.Mesh(obj, depthMaterial);
+            const objMesh = new THREE.Mesh(obj, whiteMaterial);
             objMesh.castShadow = true;
             objMesh.receiveShadow = true;
             scene.add(objMesh);
@@ -123,14 +130,13 @@ async function main(){
 
     function xrOnFrame(timestamp: DOMHighResTimeStamp, frame: XRFrame){
         let pose = frame.getViewerPose(unboundedRefSpace);
+        let detectedPlanes = frame.detectedPlanes;
         if(pose){
             processHitTest(frame, reticleSphere);
-
             processDepth(pose, frame);
-
             processLight(frame);
+            processPlanes(detectedPlanes, frame);
         }
-        
         renderer.render(scene, camera);
     }
 }
@@ -238,5 +244,73 @@ function processLight(frame: XRFrame){
         } else {
             console.log("light estimate not available");
         }
+    }
+}
+
+function createPlaneGeometry(polygons: DOMPointReadOnly[]){
+    const geometry = new THREE.BufferGeometry();
+            
+    const vertices: number[] = [];
+    const uvs: number[] = [];
+    polygons.forEach(vec => {
+        vertices.push(vec.x, vec.y, vec.z);
+        uvs.push(vec.x, vec.z);
+    });
+
+    const indices: number[] = [];
+    for(let i = 2; i < polygons.length; ++i) {
+        indices.push(0, i-1, i);
+    }
+
+    geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(vertices), 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2))
+    geometry.setIndex(indices);
+
+    return geometry;
+}
+
+function processPlanes(detectedPlanes: XRPlaneSet | undefined, frame: XRFrame){
+    if(detectedPlanes){
+        for (const [xrPlane, planeData] of planes) {
+            if (!detectedPlanes.has(xrPlane)) {
+                scene.remove(planeData.mesh);
+                planes.delete(xrPlane);
+            }
+        }
+    
+        detectedPlanes.forEach((xrPlane) => {
+            const planePose = frame.getPose(xrPlane.planeSpace, unboundedRefSpace);
+            if (!planePose) return;
+    
+            const polygon = xrPlane.polygon;
+            if (!polygon || polygon.length < 3) return;
+    
+            let planeData = planes.get(xrPlane);
+    
+            if(!planeData){
+                // Create mesh for new plane            
+                const material = new THREE.ShadowMaterial();
+                const geometry = createPlaneGeometry(polygon);
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.matrixAutoUpdate = false;
+                scene.add(mesh);
+    
+                planeData = { mesh, timestamp: xrPlane.lastChangedTime };
+                planes.set(xrPlane, planeData);
+            }
+    
+            if (xrPlane.lastChangedTime > planeData.timestamp) {
+                // Rebuild geometry            
+                planeData.mesh.geometry.dispose();
+                planeData.mesh.geometry = createPlaneGeometry(polygon);
+                planeData.timestamp = xrPlane.lastChangedTime;
+            }
+    
+            // Update plane pose
+            const matrix = new THREE.Matrix4().fromArray(planePose.transform.matrix);
+            planeData.mesh.matrix.copy(matrix);
+        });
     }
 }
