@@ -5,12 +5,18 @@ import depthShaderFrag from './depthShader.frag.glsl';
 // GLOBALS
 let viewerRefSpace: XRReferenceSpace;
 let unboundedRefSpace: XRReferenceSpace;
+
 let arHitTestSource: XRHitTestSource;
 let hitTestResult: XRHitTestResult;
 let anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[] = [];
+
 let renderer: THREE.WebGLRenderer;
+
 let depthMaterial: THREE.ShaderMaterial;
 
+let directionalLight: THREE.DirectionalLight;
+let lightProbe: THREE.LightProbe;
+let xrLightProbe: any;
 
 main();
 
@@ -23,12 +29,20 @@ async function main(){
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0xffffff, 0);
     renderer.xr.enabled = true;   
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     document.body.appendChild(renderer.domElement);
-    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight);
 
+    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight);
     const scene = new THREE.Scene();
-    const light = new THREE.DirectionalLight(new THREE.Color(1,1,1), 10);
-    scene.add(light);
+    directionalLight = new THREE.DirectionalLight();
+    directionalLight.intensity = 0;
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+
+    lightProbe = new THREE.LightProbe();
+    lightProbe.intensity = 0;
+    scene.add(lightProbe);
 
     const domRoot = document.querySelector("#dom-overlay") as HTMLDivElement;
     const arBtn = document.querySelector('#ar-btn') as HTMLButtonElement;
@@ -61,6 +75,8 @@ async function main(){
 
                 session.addEventListener('select', onSelect);
             }
+
+            xrLightProbe = await session.requestLightProbe();
         }
         else{
             console.log("Unable to create the AR session");
@@ -71,7 +87,7 @@ async function main(){
         vertexShader: depthShaderVertex,
         fragmentShader: depthShaderFrag,
         uniforms: {
-            depthTexture: { value: "" },
+            depthTexture: { value: null },
             depthUVTransform: { value: new THREE.Matrix4() },
             depthScale: { value: 0.0 },
             resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
@@ -79,7 +95,7 @@ async function main(){
         transparent: true // important if you're discarding fragments
     });
 
-    const whiteMaterial = new THREE.MeshBasicMaterial({
+    const whiteMaterial = new THREE.MeshStandardMaterial({
         color: new THREE.Color(1, 1, 1)
     });
 
@@ -94,6 +110,8 @@ async function main(){
             const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
             const obj = new THREE.BoxGeometry(0.1, 0.1, 0.1);
             const objMesh = new THREE.Mesh(obj, depthMaterial);
+            objMesh.castShadow = true;
+            objMesh.receiveShadow = true;
             scene.add(objMesh);
 
             anchoredObjects.push({
@@ -109,6 +127,8 @@ async function main(){
             processHitTest(frame, reticleSphere);
 
             processDepth(pose, frame);
+
+            processLight(frame);
         }
         
         renderer.render(scene, camera);
@@ -192,4 +212,31 @@ function updateMaterial(material: THREE.ShaderMaterial, depthInfo: XRCPUDepthInf
     material.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
     material.uniforms.depthScale.value = depthInfo.rawValueToMeters;
     material.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
+}
+
+function processLight(frame: XRFrame){
+    if(xrLightProbe){
+        const estimate = frame.getLightEstimate(xrLightProbe);
+        if(estimate){
+            lightProbe.sh.fromArray(estimate.sphericalHarmonicsCoefficients);
+            lightProbe.intensity = 1;
+
+            const intensityScalar =
+                Math.max(1.0,
+                    Math.max(estimate.primaryLightIntensity.x, Math.max(estimate.primaryLightIntensity.y, estimate.primaryLightIntensity.z))
+                );
+    
+            directionalLight.color.setRGB(
+                estimate.primaryLightIntensity.x / intensityScalar,
+                estimate.primaryLightIntensity.y / intensityScalar,
+                estimate.primaryLightIntensity.z / intensityScalar
+            );
+    
+            directionalLight.intensity = intensityScalar;
+            directionalLight.position.copy(estimate.primaryLightDirection);
+
+        } else {
+            console.log("light estimate not available");
+        }
+    }
 }
