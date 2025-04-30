@@ -13,7 +13,7 @@ let anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[] = [];
 let renderer: THREE.WebGLRenderer;
 let scene: THREE.Scene;
 
-let depthMaterial: THREE.ShaderMaterial;
+let depthMaterial: THREE.MeshStandardMaterial;
 
 let directionalLight: THREE.DirectionalLight;
 let lightProbe: THREE.LightProbe;
@@ -90,21 +90,55 @@ async function main(){
         }
     });
 
-    depthMaterial = new THREE.ShaderMaterial({
-        vertexShader: depthShaderVertex,
-        fragmentShader: depthShaderFrag,
-        uniforms: {
+    const whiteMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(1, 1, 1)
+    });
+
+    depthMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(1, 0, 0),
+        transparent: true
+    });
+
+    depthMaterial.onBeforeCompile = (shader) => {
+        depthMaterial.userData.shader = shader;
+        shader.uniforms = {
+            ...shader.uniforms,
             depthTexture: { value: null },
             depthUVTransform: { value: new THREE.Matrix4() },
             depthScale: { value: 0.0 },
             resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
-        },
-        transparent: true // important if you're discarding fragments
-    });
+        };
+        shader.fragmentShader = shader.fragmentShader.replace(`#include <clipping_planes_pars_fragment>`,
+            `#include <clipping_planes_pars_fragment>
 
-    const whiteMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(1, 1, 1)
-    });
+            uniform sampler2D depthTexture;
+            uniform mat4 depthUVTransform; // UV transform matrix in normalized view space
+            uniform float depthScale; // Depth scale factor (unspecified unit to meters)
+            uniform vec2 resolution; // Resolution of the depth texture
+            
+            float depthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
+                vec2 packedDepthAndVisibility = texture2D(depth_texture, depth_uv).rg;
+                return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * depthScale;
+            }
+
+            vec2 normalizeFragCoords(in vec2 fragCoords) {    
+                return vec2(fragCoords.x / resolution.x, 1.0 - fragCoords.y / resolution.y);
+            }`
+        );
+
+        shader.fragmentShader = shader.fragmentShader.replace(`vec4 diffuseColor = vec4( diffuse, opacity );`,
+            `
+            vec2 depthTexCoord = (depthUVTransform * vec4(normalizeFragCoords(gl_FragCoord.xy), 0.0, 1.0)).xy;
+            float depth = depthGetMeters(depthTexture, depthTexCoord);
+            float objectDepth = vViewPosition.z;
+            
+            if(depth < objectDepth) { // Real object is in front of virtual object
+                discard; // Discard the virtual object
+            }
+            
+            vec4 diffuseColor = vec4( diffuse, opacity );`
+        );
+    }
 
     const reticleSphere = new THREE.Mesh(new THREE.SphereGeometry(0.025), whiteMaterial);
     reticleSphere.visible = false;
@@ -116,7 +150,7 @@ async function main(){
             const pose = hitTestResult.getPose(unboundedRefSpace);
             const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
             const obj = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const objMesh = new THREE.Mesh(obj, whiteMaterial);
+            const objMesh = new THREE.Mesh(obj, depthMaterial);
             objMesh.castShadow = true;
             objMesh.receiveShadow = true;
             scene.add(objMesh);
@@ -206,18 +240,17 @@ function processDepth(pose: XRViewerPose, frame: XRFrame){
             depthTexture.needsUpdate = true;
             
             // Update the original material
-            updateMaterial(depthMaterial, depthInfo, depthTexture, viewport);
+            updateMaterial(depthInfo, depthTexture, viewport);
         }
     });
 }
 
-function updateMaterial(material: THREE.ShaderMaterial, depthInfo: XRCPUDepthInformation, depthTexture: THREE.DataTexture, viewport: XRViewport) {
-    if (!material.uniforms) return;
-    
-    material.uniforms.depthTexture.value = depthTexture;
-    material.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
-    material.uniforms.depthScale.value = depthInfo.rawValueToMeters;
-    material.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
+function updateMaterial(depthInfo: XRCPUDepthInformation, depthTexture: THREE.DataTexture, viewport: XRViewport) {
+    if (!depthMaterial.userData.shader) return;    
+    depthMaterial.userData.shader.uniforms.depthTexture.value = depthTexture;
+    depthMaterial.userData.shader.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
+    depthMaterial.userData.shader.uniforms.depthScale.value = depthInfo.rawValueToMeters;
+    depthMaterial.userData.shader.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
 }
 
 function processLight(frame: XRFrame){
