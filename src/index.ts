@@ -65,6 +65,11 @@ async function main(){
     depthManager.addDepthPropertyToMaterial(depthMaterial);
     depthManager.addDepthPropertyToMaterial(planeManager.getMaterial());
 
+    const model = await new FBXLoader().loadAsync('../assets/models/character.fbx');
+    model.scale.set(0.005, 0.005, 0.005);
+    model.position.z = -2;
+    scene.add(model);
+
     const features : XRSessionInit = {
         requiredFeatures: ['unbounded', 'depth-sensing', 'hit-test', 'anchors', 'light-estimation', 'viewer', 'dom-overlay', 'camera-access', 'plane-detection'],
         depthSensing: {
