@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {FBXLoader} from 'three/examples/jsm/loaders/FBXLoader';
 import depthShaderVertex from './depthShader.vert.glsl';
 import depthShaderFrag from './depthShader.frag.glsl';
 
@@ -13,7 +14,11 @@ let anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[] = [];
 let renderer: THREE.WebGLRenderer;
 let scene: THREE.Scene;
 
+let textureLoader: THREE.TextureLoader;
+let grassMaterial: THREE.Material;
 let depthMaterial: THREE.MeshStandardMaterial;
+
+const depthaffectedMaterials: THREE.Material[] = [];
 
 let directionalLight: THREE.DirectionalLight;
 let lightProbe: THREE.LightProbe;
@@ -24,6 +29,7 @@ interface PlaneData {
     timestamp: number;
 }
 const planes = new Map<XRPlane, PlaneData>();
+let grass: THREE.Mesh;
 
 main();
 
@@ -53,6 +59,50 @@ async function main(){
 
     const domRoot = document.querySelector("#dom-overlay") as HTMLDivElement;
     const arBtn = document.querySelector('#ar-btn') as HTMLButtonElement;
+
+    textureLoader = new THREE.TextureLoader();
+    const albedo = textureLoader.load('../assets/textures/grass/stylized-grass1_albedo.png');
+    albedo.wrapS = THREE.RepeatWrapping;
+    albedo.wrapT = THREE.RepeatWrapping;
+    albedo.repeat.set(5,5);
+
+    // const ao = textureLoader.load('../textures/grass/stylized-grass1_ao.png');
+    // ao.wrapS = THREE.RepeatWrapping;
+    // ao.wrapT = THREE.RepeatWrapping;
+
+    const height = textureLoader.load('../assets/textures/grass/stylized-grass1_height.png');
+    height.wrapS = THREE.RepeatWrapping;
+    height.wrapT = THREE.RepeatWrapping;
+    height.repeat.set(5,5);
+
+    const metallic = textureLoader.load('../assets/textures/grass/stylized-grass1_metallic.png');
+    metallic.wrapS = THREE.RepeatWrapping;
+    metallic.wrapT = THREE.RepeatWrapping;
+    metallic.repeat.set(5,5);
+
+    const roughness = textureLoader.load('../assets/textures/grass/stylized-grass1_roughness.png');
+    roughness.wrapS = THREE.RepeatWrapping;
+    roughness.wrapT = THREE.RepeatWrapping;
+    roughness.repeat.set(5,5);
+
+    const normal = textureLoader.load('../assets/textures/grass/stylized-grass1_normal-ogl.png');
+    normal.wrapS = THREE.RepeatWrapping;
+    normal.wrapT = THREE.RepeatWrapping;
+    normal.repeat.set(5,5);
+
+    grassMaterial = new THREE.MeshStandardMaterial({
+        metalnessMap: metallic,
+        metalness: 1,
+        normalMap: normal,
+        roughnessMap: roughness,
+        roughness: 1,
+        bumpMap: height,
+        bumpScale: 0.1,
+        map: albedo,
+        side: THREE.DoubleSide,
+    });
+
+    addDepthPropertyToMaterial(grassMaterial);
 
     const features : XRSessionInit = {
         requiredFeatures: ['unbounded', 'depth-sensing', 'hit-test', 'anchors', 'light-estimation', 'viewer', 'dom-overlay', 'camera-access', 'plane-detection'],
@@ -99,8 +149,47 @@ async function main(){
         transparent: true
     });
 
-    depthMaterial.onBeforeCompile = (shader) => {
-        depthMaterial.userData.shader = shader;
+    addDepthPropertyToMaterial(depthMaterial);
+
+    const reticleSphere = new THREE.Mesh(new THREE.SphereGeometry(0.025), whiteMaterial);
+    reticleSphere.visible = false;
+    reticleSphere.position.set(0, 0, -2);
+    scene.add(reticleSphere);
+
+    async function onSelect(event: Event){
+        if(reticleSphere.visible && hitTestResult.createAnchor){
+            const pose = hitTestResult.getPose(unboundedRefSpace);
+            const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
+            const obj = new THREE.BoxGeometry(1, 1, 1);
+            const objMesh = new THREE.Mesh(obj, depthMaterial);
+            objMesh.castShadow = true;
+            objMesh.receiveShadow = true;
+            objMesh.scale.setScalar(0.5);
+            scene.add(objMesh);
+
+            anchoredObjects.push({
+                sceneObj: objMesh,
+                anchor: anchor as XRAnchor
+            });
+        }
+    }
+
+    function xrOnFrame(timestamp: DOMHighResTimeStamp, frame: XRFrame){
+        let pose = frame.getViewerPose(unboundedRefSpace);
+        let detectedPlanes = frame.detectedPlanes;
+        if(pose){
+            processHitTest(frame, reticleSphere);
+            processDepth(pose, frame);
+            processLight(frame);
+            processPlanes(detectedPlanes, frame);
+        }
+        renderer.render(scene, camera);
+    }
+}
+
+function addDepthPropertyToMaterial(material: THREE.Material) {
+    material.onBeforeCompile = (shader) => {
+        material.userData.shader = shader;
         shader.uniforms = {
             ...shader.uniforms,
             depthTexture: { value: null },
@@ -140,39 +229,7 @@ async function main(){
         );
     }
 
-    const reticleSphere = new THREE.Mesh(new THREE.SphereGeometry(0.025), whiteMaterial);
-    reticleSphere.visible = false;
-    reticleSphere.position.set(0, 0, -2);
-    scene.add(reticleSphere);
-
-    async function onSelect(event: Event){
-        if(reticleSphere.visible && hitTestResult.createAnchor){
-            const pose = hitTestResult.getPose(unboundedRefSpace);
-            const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
-            const obj = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const objMesh = new THREE.Mesh(obj, depthMaterial);
-            objMesh.castShadow = true;
-            objMesh.receiveShadow = true;
-            scene.add(objMesh);
-
-            anchoredObjects.push({
-                sceneObj: objMesh,
-                anchor: anchor as XRAnchor
-            });
-        }
-    }
-
-    function xrOnFrame(timestamp: DOMHighResTimeStamp, frame: XRFrame){
-        let pose = frame.getViewerPose(unboundedRefSpace);
-        let detectedPlanes = frame.detectedPlanes;
-        if(pose){
-            processHitTest(frame, reticleSphere);
-            processDepth(pose, frame);
-            processLight(frame);
-            processPlanes(detectedPlanes, frame);
-        }
-        renderer.render(scene, camera);
-    }
+    depthaffectedMaterials.push(material);
 }
 
 function processHitTest(frame: XRFrame, reticleSphere: THREE.Mesh) {
@@ -245,12 +302,14 @@ function processDepth(pose: XRViewerPose, frame: XRFrame){
     });
 }
 
-function updateMaterial(depthInfo: XRCPUDepthInformation, depthTexture: THREE.DataTexture, viewport: XRViewport) {
-    if (!depthMaterial.userData.shader) return;    
-    depthMaterial.userData.shader.uniforms.depthTexture.value = depthTexture;
-    depthMaterial.userData.shader.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
-    depthMaterial.userData.shader.uniforms.depthScale.value = depthInfo.rawValueToMeters;
-    depthMaterial.userData.shader.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
+function updateMaterial(depthInfo: XRCPUDepthInformation, depthTexture: THREE.DataTexture, viewport: XRViewport) { 
+    depthaffectedMaterials.forEach(material => {
+        if (!material.userData.shader) return;  
+        material.userData.shader.uniforms.depthTexture.value = depthTexture;
+        material.userData.shader.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
+        material.userData.shader.uniforms.depthScale.value = depthInfo.rawValueToMeters;
+        material.userData.shader.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
+    });
 }
 
 function processLight(frame: XRFrame){
@@ -296,8 +355,9 @@ function createPlaneGeometry(polygons: DOMPointReadOnly[]){
     }
 
     geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(vertices), 3));
-    geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2))
+    geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
     geometry.setIndex(indices);
+    geometry.computeVertexNormals();
 
     return geometry;
 }
@@ -313,8 +373,9 @@ function processPlanes(detectedPlanes: XRPlaneSet | undefined, frame: XRFrame){
     
         detectedPlanes.forEach((xrPlane) => {
             const planePose = frame.getPose(xrPlane.planeSpace, unboundedRefSpace);
+            if(xrPlane.orientation === 'vertical') return;
+
             if (!planePose) return;
-    
             const polygon = xrPlane.polygon;
             if (!polygon || polygon.length < 3) return;
     
@@ -322,28 +383,27 @@ function processPlanes(detectedPlanes: XRPlaneSet | undefined, frame: XRFrame){
     
             if(!planeData){
                 // Create mesh for new plane            
-                const material = new THREE.ShadowMaterial();
                 const geometry = createPlaneGeometry(polygon);
-                const mesh = new THREE.Mesh(geometry, material);
+                const mesh = new THREE.Mesh(geometry, grassMaterial);
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 mesh.matrixAutoUpdate = false;
                 scene.add(mesh);
-    
+
                 planeData = { mesh, timestamp: xrPlane.lastChangedTime };
                 planes.set(xrPlane, planeData);
             }
     
             if (xrPlane.lastChangedTime > planeData.timestamp) {
-                // Rebuild geometry            
+                // Rebuild geometry      
                 planeData.mesh.geometry.dispose();
                 planeData.mesh.geometry = createPlaneGeometry(polygon);
                 planeData.timestamp = xrPlane.lastChangedTime;
+
+                const matrix = new THREE.Matrix4().fromArray(planePose.transform.matrix);
+                planeData.mesh.matrix.copy(matrix);
+                planeData.mesh.position.y += 0.05;
             }
-    
-            // Update plane pose
-            const matrix = new THREE.Matrix4().fromArray(planePose.transform.matrix);
-            planeData.mesh.matrix.copy(matrix);
         });
     }
 }
