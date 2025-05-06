@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import {FBXLoader} from 'three/examples/jsm/loaders/FBXLoader';
 import depthShaderVertex from './depthShader.vert.glsl';
 import depthShaderFrag from './depthShader.frag.glsl';
+import { HitTestManager } from './hittest';
+import { DepthManager } from './depth';
 
 // GLOBALS
 let viewerRefSpace: XRReferenceSpace;
 let unboundedRefSpace: XRReferenceSpace;
 
-let arHitTestSource: XRHitTestSource;
-let hitTestResult: XRHitTestResult;
 let anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[] = [];
 
 let renderer: THREE.WebGLRenderer;
@@ -17,8 +17,6 @@ let scene: THREE.Scene;
 let textureLoader: THREE.TextureLoader;
 let grassMaterial: THREE.Material;
 let depthMaterial: THREE.MeshStandardMaterial;
-
-const depthaffectedMaterials: THREE.Material[] = [];
 
 let directionalLight: THREE.DirectionalLight;
 let lightProbe: THREE.LightProbe;
@@ -29,7 +27,6 @@ interface PlaneData {
     timestamp: number;
 }
 const planes = new Map<XRPlane, PlaneData>();
-let grass: THREE.Mesh;
 
 main();
 
@@ -102,8 +99,6 @@ async function main(){
         side: THREE.DoubleSide,
     });
 
-    addDepthPropertyToMaterial(grassMaterial);
-
     const features : XRSessionInit = {
         requiredFeatures: ['unbounded', 'depth-sensing', 'hit-test', 'anchors', 'light-estimation', 'viewer', 'dom-overlay', 'camera-access', 'plane-detection'],
         depthSensing: {
@@ -114,6 +109,17 @@ async function main(){
             root: domRoot
         }
     };
+
+    const hitTestManager = new HitTestManager(scene);
+    const depthManager = new DepthManager();
+
+    depthMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(1, 0, 0),
+        transparent: true
+    });
+
+    depthManager.addDepthPropertyToMaterial(depthMaterial);
+    depthManager.addDepthPropertyToMaterial(grassMaterial);
 
     arBtn.addEventListener('click', async (e) => {
         const session = await navigator.xr?.requestSession('immersive-ar', features);
@@ -126,9 +132,11 @@ async function main(){
             unboundedRefSpace = await session.requestReferenceSpace('unbounded');
 
             if(session.requestHitTestSource){
-                arHitTestSource = await session.requestHitTestSource({
+                const arHitTestSource = await session.requestHitTestSource({
                     space: viewerRefSpace,
                 }) as XRHitTestSource;
+                hitTestManager.setSource(arHitTestSource);
+                hitTestManager.setReferenceSpace(unboundedRefSpace);
 
                 session.addEventListener('select', onSelect);
             }
@@ -140,24 +148,9 @@ async function main(){
         }
     });
 
-    const whiteMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(1, 1, 1)
-    });
-
-    depthMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(1, 0, 0),
-        transparent: true
-    });
-
-    addDepthPropertyToMaterial(depthMaterial);
-
-    const reticleSphere = new THREE.Mesh(new THREE.SphereGeometry(0.025), whiteMaterial);
-    reticleSphere.visible = false;
-    reticleSphere.position.set(0, 0, -2);
-    scene.add(reticleSphere);
-
     async function onSelect(event: Event){
-        if(reticleSphere.visible && hitTestResult.createAnchor){
+        const hitTestResult = hitTestManager.getLatestResult();
+        if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
             const pose = hitTestResult.getPose(unboundedRefSpace);
             const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
             const obj = new THREE.BoxGeometry(1, 1, 1);
@@ -178,138 +171,13 @@ async function main(){
         let pose = frame.getViewerPose(unboundedRefSpace);
         let detectedPlanes = frame.detectedPlanes;
         if(pose){
-            processHitTest(frame, reticleSphere);
-            processDepth(pose, frame);
+            hitTestManager.processHitResult(frame, anchoredObjects);
+            depthManager.processDepth(pose, frame, renderer);
             processLight(frame);
             processPlanes(detectedPlanes, frame);
         }
         renderer.render(scene, camera);
     }
-}
-
-function addDepthPropertyToMaterial(material: THREE.Material) {
-    material.onBeforeCompile = (shader) => {
-        material.userData.shader = shader;
-        shader.uniforms = {
-            ...shader.uniforms,
-            depthTexture: { value: null },
-            depthUVTransform: { value: new THREE.Matrix4() },
-            depthScale: { value: 0.0 },
-            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
-        };
-        shader.fragmentShader = shader.fragmentShader.replace(`#include <clipping_planes_pars_fragment>`,
-            `#include <clipping_planes_pars_fragment>
-
-            uniform sampler2D depthTexture;
-            uniform mat4 depthUVTransform; // UV transform matrix in normalized view space
-            uniform float depthScale; // Depth scale factor (unspecified unit to meters)
-            uniform vec2 resolution; // Resolution of the depth texture
-            
-            float depthGetMeters(in sampler2D depth_texture, in vec2 depth_uv) {
-                vec2 packedDepthAndVisibility = texture2D(depth_texture, depth_uv).rg;
-                return dot(packedDepthAndVisibility, vec2(255.0, 256.0 * 255.0)) * depthScale;
-            }
-
-            vec2 normalizeFragCoords(in vec2 fragCoords) {    
-                return vec2(fragCoords.x / resolution.x, 1.0 - fragCoords.y / resolution.y);
-            }`
-        );
-
-        shader.fragmentShader = shader.fragmentShader.replace(`vec4 diffuseColor = vec4( diffuse, opacity );`,
-            `
-            vec2 depthTexCoord = (depthUVTransform * vec4(normalizeFragCoords(gl_FragCoord.xy), 0.0, 1.0)).xy;
-            float depth = depthGetMeters(depthTexture, depthTexCoord);
-            float objectDepth = vViewPosition.z;
-            
-            if(depth < objectDepth) { // Real object is in front of virtual object
-                discard; // Discard the virtual object
-            }
-            
-            vec4 diffuseColor = vec4( diffuse, opacity );`
-        );
-    }
-
-    depthaffectedMaterials.push(material);
-}
-
-function processHitTest(frame: XRFrame, reticleSphere: THREE.Mesh) {
-    reticleSphere.visible = false;
-    const hitResults = frame.getHitTestResults(arHitTestSource);
-    if(hitResults.length > 0) {
-        reticleSphere.visible = true;
-        const hitResultPose = hitResults[0].getPose(unboundedRefSpace);
-        hitTestResult = hitResults[0];
-        if(hitResultPose){
-            reticleSphere.position.set(
-                hitResultPose.transform.position.x,
-                hitResultPose.transform.position.y,
-                hitResultPose.transform.position.z
-            );
-
-            reticleSphere.quaternion.set(
-                hitResultPose.transform.orientation.x,
-                hitResultPose.transform.orientation.y,
-                hitResultPose.transform.orientation.z,
-                hitResultPose.transform.orientation.w,
-            );
-        }
-    }
-
-    for (const {sceneObj, anchor} of anchoredObjects) {
-        if(!frame.trackedAnchors?.has(anchor)){
-            continue;
-        }
-        const anchorPose = frame.getPose(anchor.anchorSpace, unboundedRefSpace);
-        if(!anchorPose){
-            continue;
-        }
-        
-        sceneObj.position.set(
-            anchorPose.transform.position.x,
-            anchorPose.transform.position.y,
-            anchorPose.transform.position.z
-        );
-
-        sceneObj.quaternion.set(
-            anchorPose.transform.orientation.x,
-            anchorPose.transform.orientation.y,
-            anchorPose.transform.orientation.z,
-            anchorPose.transform.orientation.w,
-        );
-    }
-}
-
-function processDepth(pose: XRViewerPose, frame: XRFrame){
-    pose.views.forEach(view => {
-        const glLayer = renderer.xr.getBaseLayer() as XRWebGLLayer;
-        const viewport = glLayer.getViewport(view) as XRViewport;
-        const depthInfo = frame.getDepthInformation(view);
-        if(depthInfo){
-            // Convert to RGBA format (more universally supported)
-            const depthData = new Uint8Array(depthInfo.data, 0, depthInfo.data.byteLength);
-            const depthTexture = new THREE.DataTexture(
-                depthData, 
-                depthInfo.width, 
-                depthInfo.height
-            );
-            depthTexture.format = THREE.RGFormat;
-            depthTexture.type = THREE.UnsignedByteType;
-            depthTexture.needsUpdate = true;
-            
-            // Update the original material
-            updateMaterial(depthInfo, depthTexture, viewport);
-        }
-    });
-}
-
-function updateMaterial(depthInfo: XRCPUDepthInformation, depthTexture: THREE.DataTexture, viewport: XRViewport) { 
-    depthaffectedMaterials.forEach(material => {
-        if (!material.userData.shader) return;  
-        material.userData.shader.uniforms.depthTexture.value = depthTexture;
-        material.userData.shader.uniforms.depthUVTransform.value = depthInfo.normDepthBufferFromNormView.matrix;
-        material.userData.shader.uniforms.depthScale.value = depthInfo.rawValueToMeters;
-        material.userData.shader.uniforms.resolution.value = new THREE.Vector2(viewport.width, viewport.height);
-    });
 }
 
 function processLight(frame: XRFrame){
