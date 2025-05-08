@@ -1,5 +1,6 @@
 import {defineConfig} from "vite";
 import glsl from "vite-plugin-glsl";
+import {viteStaticCopy} from "vite-plugin-static-copy";
 
 export default defineConfig({
     server: {
@@ -8,6 +9,14 @@ export default defineConfig({
     },
 
     plugins: [
-        glsl()
+        glsl(),
+        viteStaticCopy({
+            targets: [
+                {
+                    src: "assets",
+                    dest: ''
+                }
+            ]
+        })
     ]
 });
