@@ -65,10 +65,22 @@ async function main(){
     depthManager.addDepthPropertyToMaterial(depthMaterial);
     depthManager.addDepthPropertyToMaterial(planeManager.getMaterial());
 
-    const model = await new FBXLoader().loadAsync('../assets/models/character.fbx');
+    const fbxLoader = new FBXLoader();
+    const model = await fbxLoader.loadAsync('../assets/models/character.fbx');
     model.scale.set(0.005, 0.005, 0.005);
-    model.position.z = -2;
-    scene.add(model);
+
+    model.traverse((obj) => {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        if (obj instanceof THREE.Mesh) {
+            const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+            materials.forEach((material) => {
+                depthManager.addDepthPropertyToMaterial(material);
+            });
+        }
+    });
+    
+    let isModelAdded: boolean = false;
 
     const features : XRSessionInit = {
         requiredFeatures: ['unbounded', 'depth-sensing', 'hit-test', 'anchors', 'light-estimation', 'viewer', 'dom-overlay', 'camera-access', 'plane-detection'],
@@ -125,6 +137,22 @@ async function main(){
                 sceneObj: objMesh,
                 anchor: anchor as XRAnchor
             });
+        }
+
+        if(!isModelAdded){
+            const planesMap = planeManager.getPlaneMap();
+            if(planesMap.size > 1){
+                const plane = planesMap.values().next().value;
+                if(plane){
+                    model.position.set(
+                        plane.mesh.position.x,
+                        plane.mesh.position.y,
+                        plane.mesh.position.z
+                    );
+                    scene.add(model);
+                    isModelAdded = true;
+                }
+            }
         }
     }
 
