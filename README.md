@@ -21,7 +21,7 @@ In this project, I try to use all the available features provided by WebXR Devic
 - [x] Combine occlusion shader with Three.js's builtin shader materials.
 - [x] Implement plane detection and create virtual planes.
 - [x] Implement light estimation and lighting to the scene.
-- [ ] Cast shadows based on the estimated light.
+- [X] Cast shadows based on the estimated light.
 - [ ] Add an interactive UI using `dom-overlay`.
 - [ ] Use `camera-access` for something.
 - [ ] Replace virtual objects with meaningful 3D models.
