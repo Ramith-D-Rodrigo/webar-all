@@ -61,6 +61,10 @@ class PlaneManager {
         this.refSpace = refSpace;
     }
 
+    public getPlaneMap(){
+        return this.planes;
+    }
+
     private createPlaneGeometry(polygons: DOMPointReadOnly[]){
         const geometry = new THREE.BufferGeometry();
         
@@ -124,7 +128,12 @@ class PlaneManager {
     
                     const matrix = new THREE.Matrix4().fromArray(planePose.transform.matrix);
                     planeData.mesh.matrix.copy(matrix);
-                    planeData.mesh.position.y += 0.05;
+                    planeData.mesh.matrix.decompose(
+                        planeData.mesh.position, 
+                        planeData.mesh.quaternion, 
+                        planeData.mesh.scale
+                    );
+                    planeData.mesh.position.y += 0.01;
                 }
             });
         }
