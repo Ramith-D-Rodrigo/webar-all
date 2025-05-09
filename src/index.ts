@@ -66,7 +66,7 @@ async function main(){
     const fbxLoader = new FBXLoader();
     const model = await fbxLoader.loadAsync('../assets/models/character.fbx');
     model.scale.set(0.005, 0.005, 0.005);
-
+    console.log(model);
     model.traverse((obj) => {
         obj.castShadow = true;
         obj.receiveShadow = true;
@@ -77,6 +77,28 @@ async function main(){
             });
         }
     });
+
+    const animations: string[] = ['Waving'];
+    const animationMixer = new THREE.AnimationMixer(model);
+    const animationsMap: Map<string, THREE.AnimationAction> = new Map();
+    for(let i = 0; i < animations.length; i++) {
+        const animationFbx = await fbxLoader.loadAsync(
+            `assets/models/animations/${animations[i]}.fbx`,
+            (xhr) => {
+                //console.log((xhr.loaded / xhr.total) * 100 + '% loaded');
+            }
+        );
+
+        const allAnimations = animationFbx.animations;
+        allAnimations.forEach((clip) => {
+            const action = animationMixer?.clipAction(clip);
+            if (action) {
+                animationsMap.set(animations[i], action);
+            }
+        });
+    }
+
+    animationsMap.get('Waving')?.play();
     
     let isModelAdded: boolean = false;
 
@@ -174,7 +196,12 @@ async function main(){
         }
     }
 
+    const clock = new THREE.Clock();
+
     function xrOnFrame(timestamp: DOMHighResTimeStamp, frame: XRFrame){
+        const delta = clock.getDelta();
+        animationMixer.update(delta);
+
         let pose = frame.getViewerPose(unboundedRefSpace);
         let detectedPlanes = frame.detectedPlanes;
         if(pose){
@@ -183,6 +210,32 @@ async function main(){
             processLight(frame);
             planeManager.processPlanes(detectedPlanes, frame, scene);
         }
+
+        const headBone = model.getObjectByName("mixamorigHead") as THREE.Bone;
+        if (!headBone) {
+            console.warn("Head bone not found");
+            return;
+        }
+        
+        // Compute direction from head to camera
+        const headWorldPos = new THREE.Vector3();
+        headBone.getWorldPosition(headWorldPos);
+        
+        const targetPos = new THREE.Vector3().copy(camera.position);
+        
+        // Compute look direction in world space
+        const lookDir = new THREE.Vector3().subVectors(targetPos, headWorldPos).normalize();
+        
+        // Create a quaternion for the rotation
+        const quat = new THREE.Quaternion();
+        quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), lookDir);
+        
+        // Convert quaternion to local space of the head bone's parent
+        const parentQuat = new THREE.Quaternion();
+        headBone.parent?.getWorldQuaternion(parentQuat);
+        parentQuat.invert();
+        headBone.quaternion.copy(quat.premultiply(parentQuat));
+
         renderer.render(scene, camera);
     }
 }
