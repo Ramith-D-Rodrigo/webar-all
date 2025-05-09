@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 import {FBXLoader} from 'three/examples/jsm/loaders/FBXLoader';
-import depthShaderVertex from './depthShader.vert.glsl';
-import depthShaderFrag from './depthShader.frag.glsl';
 import { HitTestManager } from './hittest';
 import { DepthManager } from './depth';
 import { PlaneManager } from './plane';
@@ -121,36 +119,44 @@ async function main(){
         }
     });
 
-    async function onSelect(event: Event){
-        const hitTestResult = hitTestManager.getLatestResult();
-        if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
-            const pose = hitTestResult.getPose(unboundedRefSpace);
-            const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
-            const obj = new THREE.BoxGeometry(1, 1, 1);
-            const objMesh = new THREE.Mesh(obj, depthMaterial);
-            objMesh.castShadow = true;
-            objMesh.receiveShadow = true;
-            objMesh.scale.setScalar(0.5);
-            scene.add(objMesh);
+    async function onSelect(event: TouchEvent){
+        // const hitTestResult = hitTestManager.getLatestResult();
+        // if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
+        //     const pose = hitTestResult.getPose(unboundedRefSpace);
+        //     const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
+        //     const obj = new THREE.BoxGeometry(1, 1, 1);
+        //     const objMesh = new THREE.Mesh(obj, depthMaterial);
+        //     objMesh.castShadow = true;
+        //     objMesh.receiveShadow = true;
+        //     objMesh.scale.setScalar(0.5);
+        //     scene.add(objMesh);
 
-            anchoredObjects.push({
-                sceneObj: objMesh,
-                anchor: anchor as XRAnchor
-            });
-        }
+        //     anchoredObjects.push({
+        //         sceneObj: objMesh,
+        //         anchor: anchor as XRAnchor
+        //     });
+        // }
 
         if(!isModelAdded){
-            const planesMap = planeManager.getPlaneMap();
-            if(planesMap.size > 1){
-                const plane = planesMap.values().next().value;
-                if(plane){
-                    model.position.set(
-                        plane.mesh.position.x,
-                        plane.mesh.position.y,
-                        plane.mesh.position.z
-                    );
-                    scene.add(model);
+            const raycaster = new THREE.Raycaster();
+            // Convert touch location to normalized device coordinates (NDC)
+            const touch = event.touches[0];
+            const rect = renderer.domElement.getBoundingClientRect();
+            const pointer = new THREE.Vector2(
+                ((touch.clientX - rect.left) / rect.width) * 2 - 1,
+                -((touch.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            raycaster.setFromCamera(pointer, camera);
+    
+            // calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(scene.children);
+    
+            for (let i = 0; i < intersects.length; i++ ) {
+                const obj = intersects[i].object;
+                if(obj instanceof THREE.Mesh && obj.userData.isPlane){
+                    obj.add(model);
                     isModelAdded = true;
+                    break;
                 }
             }
         }

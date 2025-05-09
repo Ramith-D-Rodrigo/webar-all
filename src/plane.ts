@@ -114,6 +114,7 @@ class PlaneManager {
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
                     mesh.matrixAutoUpdate = false;
+                    mesh.userData.isPlane = true;
                     scene.add(mesh);
     
                     planeData = { mesh, timestamp: xrPlane.lastChangedTime };
