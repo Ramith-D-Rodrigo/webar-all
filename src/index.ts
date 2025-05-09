@@ -119,7 +119,7 @@ async function main(){
         }
     });
 
-    async function onSelect(event: TouchEvent){
+    async function onSelect(event: XRInputSourceEvent){
         // const hitTestResult = hitTestManager.getLatestResult();
         // if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
         //     const pose = hitTestResult.getPose(unboundedRefSpace);
@@ -138,23 +138,35 @@ async function main(){
         // }
 
         if(!isModelAdded){
-            const raycaster = new THREE.Raycaster();
-            // Convert touch location to normalized device coordinates (NDC)
-            const touch = event.touches[0];
-            const rect = renderer.domElement.getBoundingClientRect();
-            const pointer = new THREE.Vector2(
-                ((touch.clientX - rect.left) / rect.width) * 2 - 1,
-                -((touch.clientY - rect.top) / rect.height) * 2 + 1
-            );
-            raycaster.setFromCamera(pointer, camera);
-    
-            // calculate objects intersecting the picking ray
-            const intersects = raycaster.intersectObjects(scene.children);
-    
-            for (let i = 0; i < intersects.length; i++ ) {
+            const frame = event.frame;
+            const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
+            if (!pose) return;
+
+            const rayOrigin = new THREE.Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+            const direction = new THREE.Vector3(0, 0, -1) // Forward in XR space
+                .applyQuaternion(new THREE.Quaternion(
+                    pose.transform.orientation.x, 
+                    pose.transform.orientation.y, 
+                    pose.transform.orientation.z, 
+                    pose.transform.orientation.w)
+                )
+                .normalize();
+
+            const raycaster = new THREE.Raycaster(rayOrigin, direction);
+
+            // Calculate intersections
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
-                if(obj instanceof THREE.Mesh && obj.userData.isPlane){
-                    obj.add(model);
+                intersects[i].point
+                if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
+                    model.position.set(
+                        intersects[i].point.x,
+                        intersects[i].point.y,
+                        intersects[i].point.z
+                    );
+                    scene.add(model);
                     isModelAdded = true;
                     break;
                 }
