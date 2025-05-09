@@ -38,7 +38,7 @@ class DepthManager {
                 float depth = depthGetMeters(depthTexture, depthTexCoord);
                 float objectDepth = vViewPosition.z;
                 
-                if(depth < objectDepth) { // Real object is in front of virtual object
+                if((depth + 0.05) < objectDepth) { // Real object is in front of virtual object
                     discard; // Discard the virtual object
                 }
                 
