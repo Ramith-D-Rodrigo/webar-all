@@ -53,7 +53,7 @@ async function main(){
 
     const hitTestManager = new HitTestManager(scene);
     const depthManager = new DepthManager();
-    const planeManager = new PlaneManager(textureLoader);
+    const planeManager = new PlaneManager(textureLoader, scene);
 
     depthMaterial = new THREE.MeshStandardMaterial({
         color: new THREE.Color(1, 0, 0),
@@ -64,9 +64,8 @@ async function main(){
     depthManager.addDepthPropertyToMaterial(planeManager.getMaterial());
 
     const fbxLoader = new FBXLoader();
-    const model = await fbxLoader.loadAsync('../assets/models/character.fbx');
+    const model = await fbxLoader.loadAsync('assets/models/character.fbx');
     model.scale.set(0.005, 0.005, 0.005);
-    console.log(model);
     model.traverse((obj) => {
         obj.castShadow = true;
         obj.receiveShadow = true;
@@ -159,29 +158,28 @@ async function main(){
         //     });
         // }
 
+        const frame = event.frame;
+        const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
+        if (!pose) return;
+
+        const rayOrigin = new THREE.Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+        const direction = new THREE.Vector3(0, 0, -1) // Forward in XR space
+            .applyQuaternion(new THREE.Quaternion(
+                pose.transform.orientation.x, 
+                pose.transform.orientation.y, 
+                pose.transform.orientation.z, 
+                pose.transform.orientation.w)
+            )
+            .normalize();
+
+        const raycaster = new THREE.Raycaster(rayOrigin, direction);
+
+        // Calculate intersections
+        const intersects = raycaster.intersectObjects(scene.children, true);
+
         if(!isModelAdded){
-            const frame = event.frame;
-            const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
-            if (!pose) return;
-
-            const rayOrigin = new THREE.Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
-            const direction = new THREE.Vector3(0, 0, -1) // Forward in XR space
-                .applyQuaternion(new THREE.Quaternion(
-                    pose.transform.orientation.x, 
-                    pose.transform.orientation.y, 
-                    pose.transform.orientation.z, 
-                    pose.transform.orientation.w)
-                )
-                .normalize();
-
-            const raycaster = new THREE.Raycaster(rayOrigin, direction);
-
-            // Calculate intersections
-            const intersects = raycaster.intersectObjects(scene.children, true);
-
             for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
-                intersects[i].point
                 if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
                     model.position.set(
                         intersects[i].point.x,
@@ -191,6 +189,15 @@ async function main(){
                     scene.add(model);
                     isModelAdded = true;
                     break;
+                }
+            }
+        }
+        else{
+            if(intersects.length > 0){
+                const obj = intersects[0].object;
+                if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
+                    const target = intersects[0].point;
+                    planeManager.processPath(model.position, target, obj.userData.zoneId);
                 }
             }
         }

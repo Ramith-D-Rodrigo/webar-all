@@ -1,56 +1,60 @@
 import * as THREE from 'three';
+import { Pathfinding, PathfindingHelper } from 'three-pathfinding';
 
 interface PlaneData {
     mesh: THREE.Mesh;
     timestamp: number;
+    zoneId: string;
 }
 
 class PlaneManager {
     private planes = new Map<XRPlane, PlaneData>();
     private refSpace: XRReferenceSpace;
     private grassMaterial: THREE.Material;
+    private pathFinding: Pathfinding;
+    private pathFindingHelper: PathfindingHelper;
+    private nextZoneNo: number = 0;
 
-    public constructor(textureLoader: THREE.TextureLoader){
-        const albedo = textureLoader.load('../assets/textures/grass/stylized-grass1_albedo.png');
+    public constructor(textureLoader: THREE.TextureLoader, scene: THREE.Scene){
+        const repeatX = 2;
+        const repeatY = 2;
+        const offsetX = 0;
+        const offsetY = 0;
+        const albedo = textureLoader.load('assets/textures/grass/stylized-grass1_albedo.png');
         albedo.wrapS = THREE.RepeatWrapping;
         albedo.wrapT = THREE.RepeatWrapping;
-        albedo.repeat.set(5,5);
+        albedo.repeat.set(repeatX,repeatY);
+        albedo.offset.set(offsetX, offsetY);
 
-        // const ao = textureLoader.load('../textures/grass/stylized-grass1_ao.png');
-        // ao.wrapS = THREE.RepeatWrapping;
-        // ao.wrapT = THREE.RepeatWrapping;
-
-        const height = textureLoader.load('../assets/textures/grass/stylized-grass1_height.png');
+        const height = textureLoader.load('assets/textures/grass/stylized-grass1_height.png');
         height.wrapS = THREE.RepeatWrapping;
         height.wrapT = THREE.RepeatWrapping;
-        height.repeat.set(5,5);
+        height.repeat.set(repeatX,repeatY);
+        height.offset.set(offsetX, offsetY);
 
-        const metallic = textureLoader.load('../assets/textures/grass/stylized-grass1_metallic.png');
+        const metallic = textureLoader.load('assets/textures/grass/stylized-grass1_metallic.png');
         metallic.wrapS = THREE.RepeatWrapping;
         metallic.wrapT = THREE.RepeatWrapping;
-        metallic.repeat.set(5,5);
+        metallic.repeat.set(repeatX,repeatY);
+        metallic.offset.set(offsetX, offsetY);
 
-        const roughness = textureLoader.load('../assets/textures/grass/stylized-grass1_roughness.png');
-        roughness.wrapS = THREE.RepeatWrapping;
-        roughness.wrapT = THREE.RepeatWrapping;
-        roughness.repeat.set(5,5);
-
-        const normal = textureLoader.load('../assets/textures/grass/stylized-grass1_normal-ogl.png');
+        const normal = textureLoader.load('assets/textures/grass/stylized-grass1_normal-ogl.png');
         normal.wrapS = THREE.RepeatWrapping;
         normal.wrapT = THREE.RepeatWrapping;
-        normal.repeat.set(5,5);
+        normal.repeat.set(repeatX,repeatY);
+        normal.offset.set(offsetX, offsetY);
 
         this.grassMaterial = new THREE.MeshStandardMaterial({
             metalnessMap: metallic,
-            metalness: 1,
             normalMap: normal,
-            roughnessMap: roughness,
-            roughness: 1,
             bumpMap: height,
-            bumpScale: 0.1,
             map: albedo,
-            side: THREE.DoubleSide,
+            side: THREE.DoubleSide
         });
+
+        this.pathFinding = new Pathfinding();
+        this.pathFindingHelper = new PathfindingHelper();
+        scene.add(this.pathFindingHelper);
     }
 
     public getMaterial(): THREE.Material{
@@ -111,13 +115,14 @@ class PlaneManager {
                     // Create mesh for new plane            
                     const geometry = this.createPlaneGeometry(polygon);
                     const mesh = new THREE.Mesh(geometry, this.grassMaterial);
+                    const zoneId = this.createZoneId();
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
-                    mesh.matrixAutoUpdate = false;
                     mesh.userData.isPlane = true;
+                    mesh.userData.zoneId = zoneId;
                     scene.add(mesh);
     
-                    planeData = { mesh, timestamp: xrPlane.lastChangedTime };
+                    planeData = { mesh, timestamp: xrPlane.lastChangedTime,  zoneId: zoneId};
                     this.planes.set(xrPlane, planeData);
                 }
         
@@ -134,10 +139,28 @@ class PlaneManager {
                         planeData.mesh.quaternion, 
                         planeData.mesh.scale
                     );
+
+                    const zoneGeometry = planeData.mesh.geometry.clone().applyMatrix4(matrix);
+                    this.pathFinding.setZoneData(planeData.zoneId, Pathfinding.createZone(zoneGeometry));
                     planeData.mesh.position.y += 0.01;
                 }
             });
         }
+    }
+
+    public processPath(src: THREE.Vector3, dst: THREE.Vector3, zoneId: string){
+        const groupId = this.pathFinding.getGroup(zoneId, src);
+        const path = this.pathFinding.findPath(src, dst, zoneId, groupId);
+        if(path){
+            this.pathFindingHelper.reset();
+            this.pathFindingHelper.setPlayerPosition(src);
+            this.pathFindingHelper.setTargetPosition(dst);
+            this.pathFindingHelper.setPath(path);
+        }
+    }
+
+    private createZoneId(){
+        return "zone" + this.nextZoneNo++;
     }
 }
 
