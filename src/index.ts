@@ -193,11 +193,12 @@ async function main(){
             }
         }
         else{
-            if(intersects.length > 0){
-                const obj = intersects[0].object;
-                if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
-                    const target = intersects[0].point;
+            for(let i = 0; i < intersects.length; i++){
+                const obj = intersects[i].object;
+                if(obj instanceof THREE.Mesh && obj.userData.isPlane){
+                    const target = intersects[i].point;
                     planeManager.processPath(model.position, target, obj.userData.zoneId);
+                    break;
                 }
             }
         }
