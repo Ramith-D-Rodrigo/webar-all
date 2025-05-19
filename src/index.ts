@@ -57,29 +57,6 @@ async function main(){
     const depthManager = new DepthManager();
     const planeManager = new PlaneManager(textureLoader, scene);
 
-    let currSelectAction: string;
-
-    const characterBtn = document.createElement('button');
-    characterBtn.classList.add('scroll-button');
-    characterBtn.innerHTML = 'Control 3D Character';
-
-    const hitTestBtn = document.createElement('button');
-    hitTestBtn.classList.add('scroll-button');
-    hitTestBtn.innerHTML = 'Use Hit Test';
-
-
-    characterBtn.addEventListener('click', ()=> {
-        currSelectAction = 'character';
-        hitTestManager.setMeshVisible(false);
-    });
-    
-    hitTestBtn.addEventListener('click', ()=> {
-        currSelectAction = 'hit-test';
-    });
-
-    scrollContainer.appendChild(characterBtn);
-    scrollContainer.appendChild(hitTestBtn);
-
     depthMaterial = new THREE.MeshStandardMaterial({
         color: new THREE.Color(1, 0, 0),
         transparent: true
@@ -143,7 +120,41 @@ async function main(){
 
     let targetDest: THREE.Vector3 | undefined;
 
+    let currSelectAction: string;
+
+    const characterBtn = document.createElement('button');
+    characterBtn.classList.add('scroll-button');
+    characterBtn.innerHTML = 'Control 3D Character';
+
+    const hitTestBtn = document.createElement('button');
+    hitTestBtn.classList.add('scroll-button');
+    hitTestBtn.innerHTML = 'Use Hit Test';
+
+    let ignoreSelect = false;
+
+    function debounceSelect(duration = 300) {
+        ignoreSelect = true;
+        setTimeout(() => ignoreSelect = false, duration);
+    }
+
+    characterBtn.addEventListener('click', ()=> {
+        currSelectAction = 'character';
+        hitTestManager.setMeshVisible(false);
+        debounceSelect();
+    });
+
+    hitTestBtn.addEventListener('click', ()=> {
+        currSelectAction = 'hit-test';
+        debounceSelect();
+    });
+
+    scrollContainer.appendChild(characterBtn);
+    scrollContainer.appendChild(hitTestBtn);
+
+
     async function onSelect(event: XRInputSourceEvent){
+        if (ignoreSelect) return;
+
         const frame = event.frame;
         const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
         if (!pose) return;
