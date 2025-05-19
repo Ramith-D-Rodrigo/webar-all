@@ -4,13 +4,11 @@ import { DepthManager } from './depth';
 
 const WAVING = 'Waving';
 const IDLE = 'Idle';
-const STANDARD_WALK = 'Standard Walk';
-const START_WALKING = 'Start Walking';
-const STOP_WALKING = 'Stop Walking';
+const WALK = 'Female Walk';
 
 class ModelManager {
     private model: THREE.Group<THREE.Object3DEventMap>;
-    private animations: string[] = [WAVING, IDLE, STANDARD_WALK, START_WALKING, STOP_WALKING];
+    private animations: string[] = [WAVING, IDLE, WALK];
     private animationMixer: THREE.AnimationMixer;
     private animationsMap: Map<string, THREE.AnimationAction>;
     private headBone: THREE.Bone;
@@ -74,22 +72,13 @@ class ModelManager {
         const dir = new THREE.Vector3().subVectors(targetDest, currentPos);
         const distance = dir.length();
 
-        const speed = 1; // units per second
+        const speed = 0.5; // units per second
         const moveDistance = speed * delta;
 
         if (distance > 0.01) {
             // Start walking animation if not already playing
-            if (this.currentState === IDLE || this.currentState === STOP_WALKING) {
-                this.playAnimation(START_WALKING);
-                // After START_WALKING ends, switch to STANDARD_WALK
-                const startAction = this.animationsMap.get(START_WALKING);
-                if (startAction) {
-                    startAction.getMixer().addEventListener('finished', (e) => {
-                        if (this.currentState === START_WALKING) {
-                            this.playAnimation(STANDARD_WALK);
-                        }
-                    });
-                }
+            if (this.currentState === IDLE) {
+                this.playAnimation(WALK);
             }
             
             // ROTATE model to face the target
@@ -105,17 +94,7 @@ class ModelManager {
             return false;
         } else {
             // Reached destination
-            if (this.currentState === STANDARD_WALK || this.currentState === START_WALKING) {
-                this.playAnimation(STOP_WALKING);
-                const stopAction = this.animationsMap.get(STOP_WALKING);
-                if (stopAction) {
-                    stopAction.getMixer().addEventListener('finished', (e) => {
-                        if (this.currentState === STOP_WALKING) {
-                            this.playAnimation(IDLE);
-                        }
-                    });
-                }
-            } else if (this.currentState !== IDLE) {
+            if (this.currentState === WALK) {
                 this.playAnimation(IDLE);
             }
             
