@@ -49,12 +49,36 @@ async function main(){
 
     const domRoot = document.querySelector("#dom-overlay") as HTMLDivElement;
     const arBtn = document.querySelector('#ar-btn') as HTMLButtonElement;
+    const scrollContainer = document.querySelector('.scroll-container') as HTMLElement;
 
     textureLoader = new THREE.TextureLoader();
 
     const hitTestManager = new HitTestManager(scene);
     const depthManager = new DepthManager();
     const planeManager = new PlaneManager(textureLoader, scene);
+
+    let currSelectAction: string;
+
+    const characterBtn = document.createElement('button');
+    characterBtn.classList.add('scroll-button');
+    characterBtn.innerHTML = 'Control 3D Character';
+
+    const hitTestBtn = document.createElement('button');
+    hitTestBtn.classList.add('scroll-button');
+    hitTestBtn.innerHTML = 'Use Hit Test';
+
+
+    characterBtn.addEventListener('click', ()=> {
+        currSelectAction = 'character';
+        hitTestManager.setMeshVisible(false);
+    });
+    
+    hitTestBtn.addEventListener('click', ()=> {
+        currSelectAction = 'hit-test';
+    });
+
+    scrollContainer.appendChild(characterBtn);
+    scrollContainer.appendChild(hitTestBtn);
 
     depthMaterial = new THREE.MeshStandardMaterial({
         color: new THREE.Color(1, 0, 0),
@@ -104,6 +128,13 @@ async function main(){
             }
 
             xrLightProbe = await session.requestLightProbe();
+
+            domRoot.classList.remove('hide-overlay');
+
+            session.addEventListener('end', () =>{
+                domRoot.classList.add('hide-overlay');
+                //TODO: Reset everything
+            });
         }
         else{
             console.log("Unable to create the AR session");
@@ -117,39 +148,59 @@ async function main(){
         const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
         if (!pose) return;
 
-        const rayOrigin = new THREE.Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
-        const direction = new THREE.Vector3(0, 0, -1) // Forward in XR space
-            .applyQuaternion(new THREE.Quaternion(
-                pose.transform.orientation.x, 
-                pose.transform.orientation.y, 
-                pose.transform.orientation.z, 
-                pose.transform.orientation.w)
-            )
-            .normalize();
+        if(currSelectAction === 'character'){
+            const rayOrigin = new THREE.Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+            const direction = new THREE.Vector3(0, 0, -1) // Forward in XR space
+                .applyQuaternion(new THREE.Quaternion(
+                    pose.transform.orientation.x, 
+                    pose.transform.orientation.y, 
+                    pose.transform.orientation.z, 
+                    pose.transform.orientation.w)
+                )
+                .normalize();
 
-        const raycaster = new THREE.Raycaster(rayOrigin, direction);
+            const raycaster = new THREE.Raycaster(rayOrigin, direction);
 
-        // Calculate intersections
-        const intersects = raycaster.intersectObjects(scene.children, true);
+            // Calculate intersections
+            const intersects = raycaster.intersectObjects(scene.children, true);
 
-        if(!isModelAdded){
-            for (let i = 0; i < intersects.length; i++) {
-                const obj = intersects[i].object;
-                if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
-                    model.addModelToScene(scene, intersects[i].point);
-                    isModelAdded = true;
-                    break;
+            if(!isModelAdded){
+                for (let i = 0; i < intersects.length; i++) {
+                    const obj = intersects[i].object;
+                    if (obj instanceof THREE.Mesh && obj.userData.isPlane) {
+                        model.addModelToScene(scene, intersects[i].point);
+                        isModelAdded = true;
+                        break;
+                    }
+                }
+            }
+            else{
+                for(let i = 0; i < intersects.length; i++){
+                    const obj = intersects[i].object;
+                    if(obj instanceof THREE.Mesh && obj.userData.isPlane){
+                        targetDest = intersects[i].point;
+                        //planeManager.processPath(model.position, target, obj.userData.zoneId);
+                        break;
+                    }
                 }
             }
         }
-        else{
-            for(let i = 0; i < intersects.length; i++){
-                const obj = intersects[i].object;
-                if(obj instanceof THREE.Mesh && obj.userData.isPlane){
-                    targetDest = intersects[i].point;
-                    //planeManager.processPath(model.position, target, obj.userData.zoneId);
-                    break;
-                }
+        else if(currSelectAction === 'hit-test'){
+            const hitTestResult = hitTestManager.getLatestResult();
+            if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
+                const pose = hitTestResult.getPose(unboundedRefSpace);
+                const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
+                const obj = new THREE.BoxGeometry(1, 1, 1);
+                const objMesh = new THREE.Mesh(obj, depthMaterial);
+                objMesh.castShadow = true;
+                objMesh.receiveShadow = true;
+                objMesh.scale.setScalar(0.5);
+                scene.add(objMesh);
+
+                anchoredObjects.push({
+                    sceneObj: objMesh,
+                    anchor: anchor as XRAnchor
+                });
             }
         }
     }
@@ -163,7 +214,9 @@ async function main(){
         let pose = frame.getViewerPose(unboundedRefSpace);
         let detectedPlanes = frame.detectedPlanes;
         if(pose){
-            hitTestManager.processHitResult(frame, anchoredObjects);
+            if(currSelectAction === 'hit-test'){
+                hitTestManager.processHitResult(frame, anchoredObjects);
+            }
             depthManager.processDepth(pose, frame, renderer);
             processLight(frame);
             planeManager.processPlanes(detectedPlanes, frame, scene);

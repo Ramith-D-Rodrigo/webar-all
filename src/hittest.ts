@@ -33,6 +33,10 @@ class HitTestManager {
         return this.hitMesh.visible;
     }
 
+    public setMeshVisible(val: boolean){
+        this.hitMesh.visible = val;
+    }
+
     public processHitResult(frame: XRFrame, anchoredObjects: { sceneObj: THREE.Mesh; anchor: XRAnchor; }[]) {
         this.hitMesh.visible = false;
         const hitResults = frame.getHitTestResults(this.arHitTestSource);
