@@ -223,11 +223,10 @@ async function main(){
             if (distance > 0.01) {
                 // ROTATE model to face the target
                 const targetLook = targetDest.clone();
-                targetLook.y = currentPos.y; // optional: keep model upright
+                targetLook.y = currentPos.y;
                 const lookQuat = new THREE.Quaternion();
                 model.lookAt(targetLook);
                 lookQuat.copy(model.quaternion); // target rotation
-
                 model.quaternion.slerp(lookQuat, 0.1); // 0.1 = rotation smoothness
                 // MOVE model toward the target
                 dir.normalize();
@@ -236,6 +235,14 @@ async function main(){
                 // Reached destination
                 model.position.copy(targetDest);
                 targetDest = undefined;
+
+                // Face Camera
+                const targetLook = camera.position.clone();
+                targetLook.y = currentPos.y;
+                const lookQuat = new THREE.Quaternion();
+                model.lookAt(targetLook);
+                lookQuat.copy(model.quaternion); // target rotation
+                model.quaternion.slerp(lookQuat, 0.1); // 0.1 = rotation smoothness
             }
         }
         else{
