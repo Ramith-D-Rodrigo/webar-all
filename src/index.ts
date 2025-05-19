@@ -194,6 +194,7 @@ async function main(){
         console.warn("Head bone not found");
         return;
     }
+    const headBoneQuat = headBone.quaternion;
 
     const clock = new THREE.Clock();
 
@@ -210,26 +211,8 @@ async function main(){
             planeManager.processPlanes(detectedPlanes, frame, scene);
         }
         
-        // Compute direction from head to camera
-        const headWorldPos = new THREE.Vector3();
-        headBone.getWorldPosition(headWorldPos);
-        
-        const targetPos = new THREE.Vector3().copy(camera.position);
-        
-        // Compute look direction in world space
-        const lookDir = new THREE.Vector3().subVectors(targetPos, headWorldPos).normalize();
-        
-        // Create a quaternion for the rotation
-        const quat = new THREE.Quaternion();
-        quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), lookDir);
-        
-        // Convert quaternion to local space of the head bone's parent
-        const parentQuat = new THREE.Quaternion();
-        headBone.parent?.getWorldQuaternion(parentQuat);
-        parentQuat.invert();
-        headBone.quaternion.copy(quat.premultiply(parentQuat));
-
         if (targetDest) {
+            headBone.quaternion.set(headBoneQuat.x , headBoneQuat.y, headBoneQuat.z, headBoneQuat.w);
             const currentPos = model.position.clone();
             const dir = new THREE.Vector3().subVectors(targetDest, currentPos);
             const distance = dir.length();
@@ -254,6 +237,26 @@ async function main(){
                 model.position.copy(targetDest);
                 targetDest = undefined;
             }
+        }
+        else{
+            // Compute direction from head to camera
+            const headWorldPos = new THREE.Vector3();
+            headBone.getWorldPosition(headWorldPos);
+            
+            const targetPos = new THREE.Vector3().copy(camera.position);
+            
+            // Compute look direction in world space
+            const lookDir = new THREE.Vector3().subVectors(targetPos, headWorldPos).normalize();
+            
+            // Create a quaternion for the rotation
+            const quat = new THREE.Quaternion();
+            quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), lookDir);
+            
+            // Convert quaternion to local space of the head bone's parent
+            const parentQuat = new THREE.Quaternion();
+            headBone.parent?.getWorldQuaternion(parentQuat);
+            parentQuat.invert();
+            headBone.quaternion.copy(quat.premultiply(parentQuat));
         }
 
         renderer.render(scene, camera);
