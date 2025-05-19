@@ -140,24 +140,9 @@ async function main(){
         }
     });
 
+    let targetDest: THREE.Vector3 | undefined;
+
     async function onSelect(event: XRInputSourceEvent){
-        // const hitTestResult = hitTestManager.getLatestResult();
-        // if(hitTestManager.isMeshVisible() && hitTestResult.createAnchor){
-        //     const pose = hitTestResult.getPose(unboundedRefSpace);
-        //     const anchor = await hitTestResult.createAnchor(pose?.transform as XRRigidTransform);
-        //     const obj = new THREE.BoxGeometry(1, 1, 1);
-        //     const objMesh = new THREE.Mesh(obj, depthMaterial);
-        //     objMesh.castShadow = true;
-        //     objMesh.receiveShadow = true;
-        //     objMesh.scale.setScalar(0.5);
-        //     scene.add(objMesh);
-
-        //     anchoredObjects.push({
-        //         sceneObj: objMesh,
-        //         anchor: anchor as XRAnchor
-        //     });
-        // }
-
         const frame = event.frame;
         const pose = frame.getPose(event.inputSource.targetRaySpace, unboundedRefSpace);
         if (!pose) return;
@@ -196,12 +181,18 @@ async function main(){
             for(let i = 0; i < intersects.length; i++){
                 const obj = intersects[i].object;
                 if(obj instanceof THREE.Mesh && obj.userData.isPlane){
-                    const target = intersects[i].point;
-                    planeManager.processPath(model.position, target, obj.userData.zoneId);
+                    targetDest = intersects[i].point;
+                    //planeManager.processPath(model.position, target, obj.userData.zoneId);
                     break;
                 }
             }
         }
+    }
+
+    const headBone = model.getObjectByName("mixamorigHead") as THREE.Bone;
+    if (!headBone) {
+        console.warn("Head bone not found");
+        return;
     }
 
     const clock = new THREE.Clock();
@@ -217,12 +208,6 @@ async function main(){
             depthManager.processDepth(pose, frame, renderer);
             processLight(frame);
             planeManager.processPlanes(detectedPlanes, frame, scene);
-        }
-
-        const headBone = model.getObjectByName("mixamorigHead") as THREE.Bone;
-        if (!headBone) {
-            console.warn("Head bone not found");
-            return;
         }
         
         // Compute direction from head to camera
@@ -243,6 +228,33 @@ async function main(){
         headBone.parent?.getWorldQuaternion(parentQuat);
         parentQuat.invert();
         headBone.quaternion.copy(quat.premultiply(parentQuat));
+
+        if (targetDest) {
+            const currentPos = model.position.clone();
+            const dir = new THREE.Vector3().subVectors(targetDest, currentPos);
+            const distance = dir.length();
+
+            const speed = 1; // units per second
+            const moveDistance = speed * delta;
+
+            if (distance > 0.01) {
+                // ROTATE model to face the target
+                const targetLook = targetDest.clone();
+                targetLook.y = currentPos.y; // optional: keep model upright
+                const lookQuat = new THREE.Quaternion();
+                model.lookAt(targetLook);
+                lookQuat.copy(model.quaternion); // target rotation
+
+                model.quaternion.slerp(lookQuat, 0.1); // 0.1 = rotation smoothness
+                // MOVE model toward the target
+                dir.normalize();
+                model.position.addScaledVector(dir, moveDistance);
+            } else {
+                // Reached destination
+                model.position.copy(targetDest);
+                targetDest = undefined;
+            }
+        }
 
         renderer.render(scene, camera);
     }
