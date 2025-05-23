@@ -67,7 +67,6 @@ class ModelManager {
     }
 
     public moveModel(targetDest: THREE.Vector3, delta: number, camera: THREE.Camera): boolean{
-        this.headBone.quaternion.copy(this.headBoneQuat);
         const currentPos = this.model.position.clone();
         const dir = new THREE.Vector3().subVectors(targetDest, currentPos);
         const distance = dir.length();
@@ -76,6 +75,7 @@ class ModelManager {
         const moveDistance = speed * delta;
 
         if (distance > 0.01) {
+            this.headBone.quaternion.copy(this.headBoneQuat);
             // Start walking animation if not already playing
             if (this.currentState === IDLE) {
                 this.playAnimation(WALK);
