@@ -205,7 +205,7 @@ async function main(){
                 const objMesh = new THREE.Mesh(obj, depthMaterial);
                 objMesh.castShadow = true;
                 objMesh.receiveShadow = true;
-                objMesh.scale.setScalar(0.5);
+                objMesh.scale.setScalar(0.1);
                 scene.add(objMesh);
 
                 anchoredObjects.push({
