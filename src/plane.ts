@@ -142,7 +142,7 @@ class PlaneManager {
 
                     const zoneGeometry = planeData.mesh.geometry.clone().applyMatrix4(matrix);
                     this.pathFinding.setZoneData(planeData.zoneId, Pathfinding.createZone(zoneGeometry));
-                    planeData.mesh.position.y += 0.01;
+                    //planeData.mesh.position.y += 0.01;
                 }
             });
         }
