@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {FBXLoader} from 'three/examples/jsm/loaders/FBXLoader';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader';
 import { HitTestManager } from './hittest';
 import { DepthManager } from './depth';
 import { PlaneManager } from './plane';
@@ -53,7 +54,9 @@ async function main(){
 
     textureLoader = new THREE.TextureLoader();
 
-    const hitTestManager = new HitTestManager(scene);
+    const gltfLoader = new GLTFLoader();
+
+    const hitTestManager = new HitTestManager(scene, gltfLoader);
     const depthManager = new DepthManager();
     const planeManager = new PlaneManager(textureLoader, scene);
 
@@ -66,6 +69,7 @@ async function main(){
     depthManager.addDepthPropertyToMaterial(planeManager.getMaterial());
 
     const fbxLoader = new FBXLoader();
+
 
     const model = new ModelManager();
     await model.setup(fbxLoader, depthManager);

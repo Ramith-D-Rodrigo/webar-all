@@ -1,20 +1,23 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 
 class HitTestManager {
-    private hitMesh: THREE.Mesh;
+    private hitMesh: THREE.Group<THREE.Object3DEventMap>;
     private arHitTestSource: XRHitTestSource;
     private refSpace: XRReferenceSpace;
     private latestHitTestResult: XRHitTestResult;
 
-    constructor(scene: THREE.Scene){
+    constructor(scene: THREE.Scene, gltfLoader: GLTFLoader){
         const whiteMaterial = new THREE.MeshStandardMaterial({
             color: new THREE.Color(1, 1, 1)
         });
 
-        this.hitMesh = new THREE.Mesh(new THREE.SphereGeometry(0.025), whiteMaterial);
-        this.hitMesh.visible = false;
-        this.hitMesh.position.set(0, 0, -2);
-        scene.add(this.hitMesh);
+        gltfLoader.load('assets/models/reticle/reticle.gltf', (data) => {
+            this.hitMesh = data.scene;
+            this.hitMesh.visible = false;
+            this.hitMesh.position.set(0, 0, -2);
+            scene.add(this.hitMesh);
+        });
     }
 
     public setSource(arHitTestSource: XRHitTestSource){
